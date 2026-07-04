@@ -49,6 +49,9 @@
 (declare-function aidermacs--cleanup-temp-buffers "aidermacs-output")
 (declare-function aidermacs--send-notification "aidermacs")
 
+(defvar aidermacs--command-start-time)
+(defvar aidermacs-notify-after-seconds)
+
 (declare-function evil-define-minor-mode-key "evil-core")
 
 (defvar aidermacs-prompt-regexp)

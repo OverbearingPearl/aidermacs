@@ -42,6 +42,7 @@
 (require 'aidermacs-output)
 
 (declare-function magit-show-commit "magit-diff")
+(declare-function notifications-notify "notifications")
 
 (defgroup aidermacs nil
   "AI pair programming with Aider."

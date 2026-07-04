@@ -41,6 +41,9 @@
 (declare-function aidermacs--detect-edited-files "aidermacs-output")
 (declare-function aidermacs--send-notification "aidermacs")
 
+(defvar aidermacs--command-start-time)
+(defvar aidermacs-notify-after-seconds)
+
 (defvar aidermacs--last-command)
 (defvar diff-update-on-the-fly)
 
