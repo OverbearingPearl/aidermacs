@@ -58,6 +58,21 @@ If it is a list, Aidermacs will try each program in order."
 (defvar aidermacs--cached-versions (make-hash-table :test 'equal)
   "Hash table of cached aider versions keyed by workspace.")
 
+(defcustom aidermacs-enable-notifications t
+  "When non-nil, send system notification when aider command completes.
+This is useful when aider takes a long time to process and the user
+has switched to another application."
+  :type 'boolean)
+
+(defcustom aidermacs-notify-after-seconds 120
+  "Minimum seconds elapsed before sending notification on command completion.
+Only applies when `aidermacs-enable-notifications' is non-nil."
+  :type 'integer)
+
+(defvar-local aidermacs--command-start-time nil
+  "Timestamp when the current command was sent to aider.
+Used to determine if notification should be sent when command completes.")
+
 (defun aidermacs--get-cache-key ()
   "Generate a unique cache key based on current workspace context.
 Returns a string combining the remote connection (if any) and project root."
@@ -228,6 +243,60 @@ Call this after upgrading aider to ensure the correct version is detected."
         (message "Aider version cache cleared for all workspaces."))
     (remhash (aidermacs--get-cache-key) aidermacs--cached-versions)
     (message "Aider version cache cleared for current workspace.")))
+
+(defun aidermacs--send-notification (title message)
+  "Send system notification with TITLE and MESSAGE.
+Uses `notifications' library if available, otherwise falls back to
+system-specific commands."
+  (when aidermacs-enable-notifications
+    (condition-case err
+        (cond
+         ((featurep 'notifications)
+          (notifications-notify
+           :title title
+           :body message
+           :app-name "Aidermacs"
+           :timeout 0))
+         ((eq system-type 'darwin)
+          (cond
+           ((executable-find "alerter")
+            (make-process
+             :name "aidermacs-alerter"
+             :command (list "alerter"
+                            "--title" title
+                            "--message" message
+                            "--sound" "default"
+                            "--timeout" "0")
+             :noquery t
+             :connection-type 'pipe))
+           ((executable-find "terminal-notifier")
+            (make-process
+             :name "aidermacs-terminal-notifier"
+             :command (list "terminal-notifier"
+                           "-title" title
+                           "-message" message
+                           "-sound" "default"
+                           "-activate" "org.gnu.Emacs"
+                           "-timeout" "0")
+             :noquery t
+             :connection-type 'pipe))
+           (t
+            (call-process "osascript" nil nil nil
+                          "-e" (format "display notification \"%s\" with title \"%s\" sound name \"default\""
+                                      message title)))))
+         ((eq system-type 'gnu/linux)
+          (call-process "notify-send" nil nil nil
+                       title message
+                       "-t" "0"))
+         ((eq system-type 'windows-nt)
+          (call-process "powershell" nil nil nil
+                       "-Command"
+                       (format "[System.Reflection.Assembly]::LoadWithPartialName('System.Windows.Forms'); [System.Windows.Forms.MessageBox]::Show('%s', '%s', [System.Windows.Forms.MessageBoxButtons]::OK, [System.Windows.Forms.MessageBoxIcon]::Information)"
+                               message title)))
+         (t
+          nil))
+      (error
+       (message "Failed to send notification: %s" err)))))
 
 (defun aidermacs-project-root ()
   "Get the project root using VC-git, or fallback to file directory.

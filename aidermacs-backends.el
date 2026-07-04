@@ -54,6 +54,32 @@ of using a comint process."
 (defconst aidermacs-prompt-regexp "^[^[:space:]<]*>[[:space:]]+$"
   "Regexp to match Aider's command prompt.")
 
+(defvar aidermacs-question-regexp "(Y)es/(N)o"
+  "Regexp to detect aider Y/N confirmation prompts.
+Matches all confirmation prompts including:
+- Edit the files? (Y)es/(N)o [Yes]:
+- Attempt to fix lint errors? (Y)es/(N)o [Yes]:
+- Add file to the chat? (Y)es/(N)o/(D)on't ask again [Yes]:
+- Add file to the chat? (Y)es/(N)o/(A)ll/(S)kip all/(D)on't ask again [Yes]:
+- Add URL to the chat? (Y)es/(N)o/(D)on't ask again [Yes]:
+- Add URL to the chat? (Y)es/(N)o/(A)ll/(S)kip all/(D)on't ask again [Yes]:
+The (Y)es/(N)o pattern is the common denominator across all variants.
+
+Limitations of this permissive regexp:
+1. False positives: Any text containing \"(Y)es/(N)o\" will be treated as a prompt,
+   potentially triggering notifications prematurely. This includes:
+   - User messages discussing confirmation prompts
+   - AI responses containing the pattern as example text
+   - Code snippets or documentation mentioning the pattern
+2. False positive probability: Moderate. The pattern is specific enough to avoid
+   most casual text, but technical discussions about aider's prompts may trigger it.
+   In normal usage, false positives are infrequent but possible.
+3. No context awareness: The regexp doesn't check if the pattern appears at the
+   end of a line (where prompts usually are) or is followed by \" [Yes]:\".
+   This increases recall but reduces precision.
+4. Timing implications: Premature detection may cause notifications to be sent
+   before the user has actually seen the prompt, reducing their usefulness.")
+
 ;; Backend dispatcher functions
 (defun aidermacs-run-backend (program args buffer-name)
   "Run aidermacs using the selected backend.
