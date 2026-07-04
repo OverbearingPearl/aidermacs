@@ -27,6 +27,7 @@
 (require 'cl-lib)
 (require 'map)
 (require 'markdown-mode)
+(require 'ansi-color)
 
 ;; Forward declarations
 (declare-function aidermacs--prepare-for-code-edit "aidermacs-output")
@@ -38,6 +39,7 @@
 (declare-function aidermacs--show-ediff-for-edited-files "aidermacs-output")
 (declare-function aidermacs--cleanup-temp-buffers "aidermacs-output")
 (declare-function aidermacs--detect-edited-files "aidermacs-output")
+(declare-function aidermacs--send-notification "aidermacs")
 
 (defvar aidermacs--last-command)
 (defvar diff-update-on-the-fly)
@@ -116,22 +118,40 @@ are next states.")
   "Temporary output variable storing the raw output string.")
 
 (defvar aidermacs-prompt-regexp)
+(defvar aidermacs-question-regexp)
 
 (defun aidermacs--comint-output-filter (output)
   "Accumulate OUTPUT string until a prompt is detected, then store it."
   (when (and (aidermacs--is-aidermacs-buffer-p) (not (string-empty-p output)))
+    ;; Filter ANSI escape sequences before accumulating to ensure regex matching works
     (setq aidermacs--comint-output-temp
-          (concat aidermacs--comint-output-temp (substring-no-properties output)))
-    ;; Check if the output contains a prompt
-    (when (string-match-p aidermacs-prompt-regexp aidermacs--comint-output-temp)
-      (aidermacs--store-output aidermacs--comint-output-temp)
-      (setq-local aidermacs--ready t)
-      ;; Check if any files were edited and show ediff if needed
-      (let ((edited-files (aidermacs--detect-edited-files)))
-        (if edited-files
-            (aidermacs--show-ediff-for-edited-files edited-files)
-          (aidermacs--cleanup-temp-buffers)))
-      (setq aidermacs--comint-output-temp ""))))
+          (concat aidermacs--comint-output-temp
+                  (ansi-color-filter-apply (substring-no-properties output))))
+
+    ;; Check for standard prompt or question prompt
+    (let ((has-prompt (string-match-p aidermacs-prompt-regexp aidermacs--comint-output-temp))
+          (has-question (string-match-p aidermacs-question-regexp aidermacs--comint-output-temp)))
+
+      (if (or has-prompt has-question)
+          ;; Prompt detected: aider is waiting, check notification and reset timer
+          (progn
+            ;; Check if we need to send notification
+            (when aidermacs--command-start-time
+              (let ((elapsed (float-time (time-subtract (current-time) aidermacs--command-start-time))))
+                (when (> elapsed aidermacs-notify-after-seconds)
+                  (aidermacs--send-notification "Aidermacs" "Aider needs your attention"))))
+            ;; Always reset timer when prompt is detected
+            (setq aidermacs--command-start-time nil)
+            (aidermacs--store-output aidermacs--comint-output-temp)
+            (setq-local aidermacs--ready t)
+            ;; Check if any files were edited and show ediff if needed
+            (let ((edited-files (aidermacs--detect-edited-files)))
+              (if edited-files
+                  (aidermacs--show-ediff-for-edited-files edited-files)
+                (aidermacs--cleanup-temp-buffers)))
+            (setq aidermacs--comint-output-temp ""))
+        ;; No prompt detected: aider is still outputting
+        ))))
 
 (defun aidermacs-reset-font-lock-state ()
   "Reset font lock state to default for processing a new source block."
@@ -305,11 +325,13 @@ PROC is the process to send to.  STRING is the command to send."
   (aidermacs-reset-font-lock-state)
   ;; Store the command for tracking in the correct buffer
   (with-current-buffer (process-buffer proc)
-    (if (member (downcase string) '("" "y" "n" "d" "yes" "no"))
-        (aidermacs--parse-output-for-files aidermacs--comint-output-temp)
-      (setq aidermacs--last-command string)
-      (when (aidermacs--command-may-edit-files string)
-        (aidermacs--prepare-for-code-edit))))
+    ;; Always set timestamp for any input, including y/n/yes/no
+    (setq-local aidermacs--last-command string)
+    (setq-local aidermacs--command-start-time (current-time))
+    (when (member (downcase string) '("" "y" "n" "d" "yes" "no" "a" "s"))
+      (aidermacs--parse-output-for-files aidermacs--comint-output-temp))
+    (when (aidermacs--command-may-edit-files string)
+      (aidermacs--prepare-for-code-edit)))
   (comint-simple-send proc (aidermacs--process-message-if-multi-line string)))
 
 (defun aidermacs-run-comint (program args buffer-name)
@@ -366,6 +388,12 @@ The output is collected and passed to the current callback."
   (interactive)
   (comint-interrupt-subjob)
   (when (aidermacs--is-aidermacs-buffer-p)
+    ;; Reset command state
+    (setq-local aidermacs--ready t)
+    (setq-local aidermacs--command-start-time nil)
+    (setq-local aidermacs--last-command nil)
+    (setq-local aidermacs--current-callback nil)
+    ;; Clean up temp buffers
     (aidermacs--cleanup-temp-buffers)))
 
 (defvar aidermacs-comint-mode-map

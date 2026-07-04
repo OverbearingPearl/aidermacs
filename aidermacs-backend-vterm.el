@@ -47,10 +47,12 @@
 (declare-function aidermacs--parse-output-for-files "aidermacs-output")
 (declare-function aidermacs--show-ediff-for-edited-files "aidermacs-output")
 (declare-function aidermacs--cleanup-temp-buffers "aidermacs-output")
+(declare-function aidermacs--send-notification "aidermacs")
 
 (declare-function evil-define-minor-mode-key "evil-core")
 
 (defvar aidermacs-prompt-regexp)
+(defvar aidermacs-question-regexp)
 (defvar aidermacs--last-command)
 
 (defgroup aidermacs-backend-vterm nil
@@ -89,11 +91,10 @@ If the finish sequence is detected, store the output via
                              (error (point-max))))
              ;; Only check if we have a new prompt or haven't checked this position yet
              (last-check (or aidermacs--vterm-last-check-point start-point))
-             (should-check (> prompt-point last-check))
+             (should-check (or (> prompt-point last-check)
+                               (> (point-max) last-check)))
              ;; Pattern that looks for a shell prompt
              (expected aidermacs-prompt-regexp))
-        ;; Update the last check point
-        (setq aidermacs--vterm-last-check-point prompt-point)
         (when should-check
           (let* ((seq-start (or (save-excursion
                                   (goto-char prompt-point)
@@ -104,22 +105,35 @@ If the finish sequence is detected, store the output via
                  ;; Only get the prompt line, not the whole sequence (limit to 200 chars)
                  (prompt-line-end (min (+ seq-start 200) (point-max)))
                  (prompt-line (buffer-substring-no-properties seq-start prompt-line-end))
-                 (output (buffer-substring-no-properties start-point seq-start)))
+                 (output (buffer-substring-no-properties start-point seq-start))
+                 (recent-output (buffer-substring-no-properties last-check (point-max))))
             ;; Parse output for files
             (aidermacs--parse-output-for-files output)
-            ;; If we found a shell prompt indicating output finished
-            (when (string-match-p expected prompt-line)
-              (aidermacs--store-output (string-trim output))
-              (setq-local aidermacs--ready t)
-              (let ((edited-files (aidermacs--detect-edited-files)))
-                ;; Check if any files were edited and show ediff if needed
-                (if edited-files
-                    (aidermacs--show-ediff-for-edited-files edited-files)
-                  (aidermacs--cleanup-temp-buffers))
-                ;; Restore the original process filter now that we've finished processing
-                ;; this command's output. This returns vterm to its normal behavior.
-                (set-process-filter proc orig-filter)
-                (aidermacs--maybe-cancel-active-timer (process-buffer proc))))))))))
+            ;; Check for standard prompt or question prompt
+            (let ((has-prompt (string-match-p expected prompt-line))
+                  (has-question (string-match-p aidermacs-question-regexp recent-output)))
+              (when has-question
+                (when aidermacs--command-start-time
+                  (let ((elapsed (float-time (time-subtract (current-time) aidermacs--command-start-time))))
+                    (when (> elapsed aidermacs-notify-after-seconds)
+                      (aidermacs--send-notification "Aidermacs" "Aider needs your attention"))))
+                (setq-local aidermacs--ready t))
+              (if has-prompt
+                  (progn
+                    (when aidermacs--command-start-time
+                      (let ((elapsed (float-time (time-subtract (current-time) aidermacs--command-start-time))))
+                        (when (> elapsed aidermacs-notify-after-seconds)
+                          (aidermacs--send-notification "Aidermacs" "Aider needs your attention"))))
+                    (setq aidermacs--command-start-time nil)
+                    (aidermacs--store-output (string-trim output))
+                    (setq-local aidermacs--ready t)
+                    (let ((edited-files (aidermacs--detect-edited-files)))
+                      (if edited-files
+                          (aidermacs--show-ediff-for-edited-files edited-files)
+                        (aidermacs--cleanup-temp-buffers)))
+                    (set-process-filter proc orig-filter)
+                    (aidermacs--maybe-cancel-active-timer (process-buffer proc)))
+                (setq aidermacs--vterm-last-check-point (point-max))))))))))
 
 (defun aidermacs--vterm-capture-output ()
   "Capture vterm output until the finish sequence appears.
@@ -305,6 +319,7 @@ BUFFER is the target buffer to send to.  COMMAND is the text to send."
                        (line-end-position))))
         (when (not (string-empty-p command))
           (setq-local aidermacs--last-command command)
+          (setq-local aidermacs--command-start-time (current-time))
           (when (aidermacs--command-may-edit-files command)
             (aidermacs--prepare-for-code-edit)))))))
 
@@ -319,6 +334,12 @@ _ARGS are the arguments."
   (when (aidermacs--is-aidermacs-buffer-p)
     ;; Cancel any active timer
     (aidermacs--maybe-cancel-active-timer)
+    ;; Reset command state
+    (setq-local aidermacs--ready t)
+    (setq-local aidermacs--command-start-time nil)
+    (setq-local aidermacs--last-command nil)
+    (setq-local aidermacs--current-callback nil)
+    ;; Clean up temp buffers
     (aidermacs--cleanup-temp-buffers)))
 
 (defvar aidermacs-vterm-mode-map
