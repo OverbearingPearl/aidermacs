@@ -261,26 +261,35 @@ system-specific commands."
          ((eq system-type 'darwin)
           (cond
            ((executable-find "alerter")
-            (make-process
-             :name "aidermacs-alerter"
-             :command (list "alerter"
-                            "--title" title
-                            "--message" message
-                            "--sound" "default"
-                            "--timeout" "0")
-             :noquery t
-             :connection-type 'pipe))
-           ((executable-find "terminal-notifier")
-            (make-process
-             :name "aidermacs-terminal-notifier"
-             :command (list "terminal-notifier"
-                           "-title" title
-                           "-message" message
-                           "-sound" "default"
-                           "-activate" "org.gnu.Emacs"
-                           "-timeout" "0")
-             :noquery t
-             :connection-type 'pipe))
+            (let ((output-buffer ""))
+              (make-process
+               :name "aidermacs-alerter"
+               :command (list "alerter"
+                              "--title" title
+                              "--message" message
+                              "--sound" "default"
+                              "--actions" "Open Emacs"
+                              "--group" "aidermacs"
+                              "--json"
+                              "--timeout" "0")
+               :filter (lambda (_proc output)
+                         (setq output-buffer (concat output-buffer output)))
+               :sentinel (lambda (_proc event)
+                           (when (string-match-p "finished" event)
+                             (condition-case err
+                                 (let* ((json-object-type 'hash-table)
+                                        (json-key-type 'string)
+                                        (data (json-read-from-string output-buffer))
+                                        (activation-type (gethash "activationType" data))
+                                        (activation-value (gethash "activationValue" data)))
+                                   (when (and (string= activation-type "actionClicked")
+                                              (string= activation-value "Open Emacs"))
+                                     (unless (= 0 (call-process "open" nil nil nil "-b" "org.gnu.Emacs"))
+                                       (call-process "open" nil nil nil "-a" "Emacs"))))
+                               (error
+                                (message "Alerter JSON parse error: %s" err)))))
+               :noquery t
+               :connection-type 'pipe)))
            (t
             (call-process "osascript" nil nil nil
                           "-e" (format "display notification \"%s\" with title \"%s\" sound name \"default\""
