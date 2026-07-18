@@ -726,8 +726,9 @@ Returns a deduplicated list of such file names."
                       (string-match-p "^[[:space:]]" (thing-at-point 'line t)))
             (let* ((line (string-trim (thing-at-point 'line t)))
                    (file (car (split-string line))))
-              ;; For remote files, we don't try to verify existence or convert paths
-              (when file
+              ;; Skip empty file names
+              (when (and file (not (string-empty-p file)))
+                ;; For remote files, we don't try to verify existence or convert paths
                 (if is-remote
                     (push (concat file " (read-only)") files)
                   ;; For local files, verify existence and convert to relative path
@@ -744,8 +745,9 @@ Returns a deduplicated list of such file names."
                       (string-match-p "^[[:space:]]" (thing-at-point 'line t)))
             (let* ((line (string-trim (thing-at-point 'line t)))
                    (file (car (split-string line))))
-              ;; For remote files, we don't try to verify existence or convert paths
-              (when file
+              ;; Skip empty file names
+              (when (and file (not (string-empty-p file)))
+                ;; For remote files, we don't try to verify existence or convert paths
                 (if is-remote
                     (push file files)
                   ;; For local files, verify existence and convert to relative path

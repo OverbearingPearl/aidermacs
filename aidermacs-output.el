@@ -160,7 +160,11 @@ Creates temporary buffers containing the original content of all tracked files.
 This is skipped if `aidermacs-show-diff-after-change' is nil."
   (when aidermacs-show-diff-after-change
     (aidermacs--cleanup-temp-buffers)
-    (when-let* ((files aidermacs--tracked-files))
+    ;; Filter out empty strings and whitespace-only strings
+    (when-let* ((files (cl-remove-if (lambda (file)
+                                       (or (string-empty-p file)
+                                           (string-match-p "^[[:space:]]*$" file)))
+                                     aidermacs--tracked-files)))
       (let ((attempts 0)
             (max-attempts 3))
         ;; Use iteration rather than recursion with a limit on attempts
@@ -172,9 +176,12 @@ This is skipped if `aidermacs-show-diff-after-change' is nil."
                        (mapcar (lambda (file)
                                  (let* ((clean-file (replace-regexp-in-string " (read-only)$" "" file))
                                         (full-path (expand-file-name clean-file (aidermacs-project-root))))
-                                   ;; Only capture state if we don't already have it
-                                   (or (assoc full-path aidermacs--pre-edit-file-buffers)
-                                       (aidermacs--capture-file-state full-path))))
+                                   ;; Skip if clean-file is empty after removing read-only suffix
+                                   (when (and (not (string-empty-p clean-file))
+                                              (file-exists-p full-path))
+                                     ;; Only capture state if we don't already have it
+                                     (or (assoc full-path aidermacs--pre-edit-file-buffers)
+                                         (aidermacs--capture-file-state full-path)))))
                                files))
                  :test (lambda (a b) (equal (car a) (car b)))))
           (setq attempts (1+ attempts))
@@ -283,8 +290,13 @@ Only adds the hook if it's not already present."
 
          ;; <file>\nAdd file to the chat?
          ((string-match "Add file to the chat?" line)
-          (add-to-list 'aidermacs--tracked-files last-line)
-          (aidermacs--prepare-for-code-edit))
+          (when (and last-line (not (string-empty-p last-line))
+                     (not (string-match-p "^(Y)es/(N)o" last-line))
+                     (not (string-match-p "^[[:space:]]*$" last-line))
+                     (or (string-match-p "\\.[a-zA-Z0-9]+$" last-line)
+                         (string-match-p "[/\\]" last-line)))
+            (add-to-list 'aidermacs--tracked-files last-line)
+            (aidermacs--prepare-for-code-edit)))
 
          ;; <file> is already in the chat as an editable file
          ((string-match "\\(\\./\\)?\\(.+\\) is already in the chat as an editable file" line)
@@ -323,7 +335,16 @@ Only adds the hook if it's not already present."
                  (full-path (expand-file-name actual-file project-root)))
             (when (or (file-exists-p full-path) is-remote)
               (push file valid-files))))
-        (setq aidermacs--tracked-files valid-files)))))
+        (setq aidermacs--tracked-files valid-files)
+        ;; Clean up tracked-files: remove empty strings and invalid entries
+        (setq aidermacs--tracked-files
+              (cl-remove-if (lambda (file)
+                              (or (string-empty-p file)
+                                  (string-match-p "^[[:space:]]*$" file)
+                                  (string-match-p "^(Y)es/(N)o" file)
+                                  (string-match-p "Add file to the chat" file)
+                                  (string-match-p "fix lint errors" file)))
+                            aidermacs--tracked-files))))))
 
 (defun aidermacs--store-output (output)
   "Store output string in the history with timestamp.
