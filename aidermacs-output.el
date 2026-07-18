@@ -255,7 +255,8 @@ Only adds the hook if it's not already present."
          ;; Applied edit to <filename>
          ((string-match "Applied edit to \\(\\./\\)?\\(.+\\)" line)
           (when-let* ((file (match-string 2 line)))
-            (add-to-list 'aidermacs--tracked-files file)))
+            (add-to-list 'aidermacs--tracked-files file)
+            (aidermacs--prepare-for-code-edit)))
 
          ;; Added <filename> to the chat.
          ((string-match "Added \\(\\./\\)?\\(.+\\) to the chat" line)
@@ -295,8 +296,7 @@ Only adds the hook if it's not already present."
                      (not (string-match-p "^[[:space:]]*$" last-line))
                      (or (string-match-p "\\.[a-zA-Z0-9]+$" last-line)
                          (string-match-p "[/\\]" last-line)))
-            (add-to-list 'aidermacs--tracked-files last-line)
-            (aidermacs--prepare-for-code-edit)))
+            (add-to-list 'aidermacs--tracked-files last-line)))
 
          ;; <file> is already in the chat as an editable file
          ((string-match "\\(\\./\\)?\\(.+\\) is already in the chat as an editable file" line)
