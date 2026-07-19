@@ -1,5 +1,17 @@
 # RELEASE
 
+# Aidermacs 1.9
+
+## What's Changed
+* Fix file tracking and edit preparation logic by @OverbearingPearl in https://github.com/MatthewZMD/aidermacs/pull/205
+* Improve file tracking robustness in aidermacs by @OverbearingPearl in https://github.com/MatthewZMD/aidermacs/pull/205
+* Add alerter action support by @OverbearingPearl in https://github.com/MatthewZMD/aidermacs/pull/203
+* Add missing variable declarations to fix CI compilation errors by @OverbearingPearl in https://github.com/MatthewZMD/aidermacs/pull/202
+* Improve prompt detection & notifications by @OverbearingPearl in https://github.com/MatthewZMD/aidermacs/pull/202
+
+**Full Changelog**: https://github.com/MatthewZMD/aidermacs/compare/v1.8...v1.9
+
+
 # Aidermacs 1.8
 
 ## What's Changed
