@@ -68,6 +68,9 @@
 (defvar-local aidermacs--vterm-last-check-point nil
   "Store the last position checked in the vterm buffer.")
 
+(defvar-local aidermacs--vterm-awaiting-output-analysis nil
+  "Non-nil when aider asked to add command output and user confirmed.")
+
 (defvar-local aidermacs-vterm-check-interval 0.7
   "Interval in seconds between checks for command completion in vterm.")
 
@@ -115,7 +118,10 @@ If the finish sequence is detected, store the output via
             ;; Check for standard prompt or question prompt
             (let ((has-prompt (string-match-p expected prompt-line))
                   (has-question (string-match-p aidermacs-question-regexp recent-output)))
+              ;; Detect specific question types
               (when has-question
+                (setq-local aidermacs--vterm-awaiting-output-analysis
+                            (string-match-p "Add command output to the chat" recent-output))
                 (when aidermacs--command-start-time
                   (let ((elapsed (float-time (time-subtract (current-time) aidermacs--command-start-time))))
                     (when (> elapsed aidermacs-notify-after-seconds)
@@ -128,12 +134,20 @@ If the finish sequence is detected, store the output via
                         (when (> elapsed aidermacs-notify-after-seconds)
                           (aidermacs--send-notification "Aidermacs" "Aider needs your attention"))))
                     (setq aidermacs--command-start-time nil)
+                    ;; Trigger analysis if user confirmed adding command output
+                    (when aidermacs--vterm-awaiting-output-analysis
+                      (setq-local aidermacs--vterm-awaiting-output-analysis nil)
+                      (vterm-send-string "Please analyze the command output above.")
+                      (vterm-send-return))
                     (aidermacs--store-output (string-trim output))
                     (setq-local aidermacs--ready t)
                     (let ((edited-files (aidermacs--detect-edited-files)))
                       (if edited-files
                           (aidermacs--show-ediff-for-edited-files edited-files)
                         (aidermacs--cleanup-temp-buffers)))
+                    ;; Reset flag on normal prompt if not already cleared
+                    (unless has-question
+                      (setq-local aidermacs--vterm-awaiting-output-analysis nil))
                     (set-process-filter proc orig-filter)
                     (aidermacs--maybe-cancel-active-timer (process-buffer proc)))
                 (setq aidermacs--vterm-last-check-point (point-max))))))))))
@@ -294,6 +308,17 @@ BUFFER is the target buffer to send to.  COMMAND is the text to send."
   "Send return to the aidermacs vterm buffer, and process the output."
   (interactive)
   (aidermacs--vterm-capture-keyboard-input)
+  ;; Handle confirmation replies for command output analysis
+  (let* ((prompt-point (condition-case nil
+                           (vterm--get-prompt-point)
+                         (error (point-min))))
+         (cmd (string-trim (buffer-substring-no-properties
+                            prompt-point
+                            (line-end-position)))))
+    (when (member (downcase cmd) '("" "y" "n" "d" "yes" "no" "a" "s"))
+      ;; User declined: clear flag immediately to prevent false trigger
+      (unless (member (downcase cmd) '("" "y" "yes" "a"))
+        (setq-local aidermacs--vterm-awaiting-output-analysis nil))))
   (aidermacs--vterm-capture-output)
   (vterm-send-return))
 

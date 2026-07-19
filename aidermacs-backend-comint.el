@@ -120,6 +120,9 @@ are next states.")
 (defvar-local aidermacs--comint-output-temp ""
   "Temporary output variable storing the raw output string.")
 
+(defvar-local aidermacs--comint-awaiting-output-analysis nil
+  "Non-nil when aider asked to add command output and user confirmed.")
+
 (defvar aidermacs-prompt-regexp)
 (defvar aidermacs-question-regexp)
 
@@ -135,6 +138,11 @@ are next states.")
     (let ((has-prompt (string-match-p aidermacs-prompt-regexp aidermacs--comint-output-temp))
           (has-question (string-match-p aidermacs-question-regexp aidermacs--comint-output-temp)))
 
+      ;; Detect specific question types
+      (when has-question
+        (setq-local aidermacs--comint-awaiting-output-analysis
+                    (string-match-p "Add command output to the chat" aidermacs--comint-output-temp)))
+
       (if (or has-prompt has-question)
           ;; Prompt detected: aider is waiting, check notification and reset timer
           (progn
@@ -145,6 +153,12 @@ are next states.")
                   (aidermacs--send-notification "Aidermacs" "Aider needs your attention"))))
             ;; Always reset timer when prompt is detected
             (setq aidermacs--command-start-time nil)
+            ;; If user confirmed adding command output, trigger analysis now that aider is back at prompt
+            (when (and has-prompt aidermacs--comint-awaiting-output-analysis)
+              (setq-local aidermacs--comint-awaiting-output-analysis nil)
+              (let ((proc (get-buffer-process (current-buffer))))
+                (when (and proc (process-live-p proc))
+                  (process-send-string proc "Please analyze the command output above.\n"))))
             (aidermacs--store-output aidermacs--comint-output-temp)
             (setq-local aidermacs--ready t)
             ;; Check if any files were edited and show ediff if needed
@@ -152,7 +166,10 @@ are next states.")
               (if edited-files
                   (aidermacs--show-ediff-for-edited-files edited-files)
                 (aidermacs--cleanup-temp-buffers)))
-            (setq aidermacs--comint-output-temp ""))
+            (setq aidermacs--comint-output-temp "")
+            ;; Reset flag on normal prompt if not already cleared
+            (unless has-question
+              (setq-local aidermacs--comint-awaiting-output-analysis nil)))
         ;; No prompt detected: aider is still outputting
         ))))
 
@@ -332,6 +349,9 @@ PROC is the process to send to.  STRING is the command to send."
     (setq-local aidermacs--last-command string)
     (setq-local aidermacs--command-start-time (current-time))
     (when (member (downcase string) '("" "y" "n" "d" "yes" "no" "a" "s"))
+      ;; User declined: clear flag immediately to prevent false trigger
+      (unless (member (downcase string) '("" "y" "yes" "a"))
+        (setq-local aidermacs--comint-awaiting-output-analysis nil))
       (aidermacs--parse-output-for-files aidermacs--comint-output-temp))
     (when (aidermacs--command-may-edit-files string)
       (aidermacs--prepare-for-code-edit)))
