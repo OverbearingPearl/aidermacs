@@ -361,7 +361,8 @@ PROC is the process to send to.  STRING is the command to send."
   "Create a comint-based buffer and run aidermacs program.
 PROGRAM is the executable path.  ARGS are command line arguments.
 BUFFER-NAME is the name for the aidermacs buffer."
-  (let ((comint-terminfo-terminal "eterm-color")
+  (let ((process-connection-type nil)  ; Use pipe instead of pty to bypass 1024 byte input limit
+        (comint-terminfo-terminal "eterm-color")
         (args (append args (list "--no-pretty" "--no-fancy-input"))))
     (unless (comint-check-proc buffer-name)
       (apply #'make-comint-in-buffer "aidermacs" buffer-name program nil args)
@@ -378,6 +379,8 @@ BUFFER is the target buffer.  COMMAND is the text to send."
     (let ((process (get-buffer-process buffer))
           (inhibit-read-only t))
       (setq-local aidermacs--ready nil)
+      (setq-local aidermacs--last-command command)
+      (setq-local aidermacs--command-start-time (current-time))
       (goto-char (process-mark process))
       (aidermacs-reset-font-lock-state)
       (insert (propertize command
@@ -385,7 +388,7 @@ BUFFER is the target buffer.  COMMAND is the text to send."
                           'font-lock-face 'aidermacs-command-text
                           'rear-nonsticky t))
       (set-marker (process-mark process) (point))
-      (comint-send-string process (concat command "\n")))))
+      (process-send-string process (concat command "\n")))))
 
 (defun aidermacs--send-command-redirect-comint (buffer command)
   "Send command to the aidermacs comint buffer and collect result.
