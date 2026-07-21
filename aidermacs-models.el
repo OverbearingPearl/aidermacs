@@ -249,7 +249,7 @@ When SET-WEAK-MODEL is non-nil, only allow setting the weak model."
                  '("Main/Reasoning Model" "Editing Model")
                  nil nil))
                (t "Main Model")))
-             (annotator (aidermacs--make-model-annotator (aidermacs--get-cheapest-models aidermacs--cached-models 10)))
+             (annotator (aidermacs--make-model-annotator (aidermacs--get-cheapest-models aidermacs--cached-models 500)))
              (candidates
               (mapcar (lambda (m)
                         (let* ((id (alist-get 'id m))
