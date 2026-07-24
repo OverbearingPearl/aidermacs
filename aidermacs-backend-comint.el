@@ -123,6 +123,13 @@ are next states.")
 (defvar-local aidermacs--comint-awaiting-output-analysis nil
   "Non-nil when aider asked to add command output and user confirmed.")
 
+(defvar-local aidermacs--comint-spinner-timer nil
+  "Timer for the spinner animation.")
+(defvar-local aidermacs--comint-spinner-overlay nil
+  "Overlay for displaying the spinner.")
+(defconst aidermacs-comint-spinner-frames '("|" "/" "-" "\\")
+  "Frames for the classic rotating spinner.")
+
 (defvar aidermacs-prompt-regexp)
 (defvar aidermacs-question-regexp)
 
@@ -152,6 +159,7 @@ are next states.")
                 (when (> elapsed aidermacs-notify-after-seconds)
                   (aidermacs--send-notification "Aidermacs" "Aider needs your attention"))))
             ;; Always reset timer when prompt is detected
+            (aidermacs--comint-stop-spinner)
             (setq aidermacs--command-start-time nil)
             ;; If user confirmed adding command output, trigger analysis now that aider is back at prompt
             (when (and has-prompt aidermacs--comint-awaiting-output-analysis)
@@ -334,10 +342,40 @@ _OUTPUT is the text to be processed."
      (message "aidermacs: can't detect major mode at %d" (point))
      'fundamental-mode)))
 
+(defun aidermacs--comint-start-spinner ()
+  "Start the spinner animation at the end of the buffer."
+  (aidermacs--comint-stop-spinner)
+  (let ((buffer (current-buffer))
+        (frames aidermacs-comint-spinner-frames)
+        (index 0))
+    (setq aidermacs--comint-spinner-timer
+          (run-at-time 0 0.1
+                       (lambda ()
+                         (when (buffer-live-p buffer)
+                           (with-current-buffer buffer
+                             (if aidermacs--comint-spinner-overlay
+                                 (overlay-put aidermacs--comint-spinner-overlay
+                                              'after-string (nth index frames))
+                               (setq aidermacs--comint-spinner-overlay
+                                     (make-overlay (point-max) (point-max)))
+                               (overlay-put aidermacs--comint-spinner-overlay
+                                            'after-string (nth index frames)))
+                             (setq index (mod (1+ index) (length frames))))))))))
+
+(defun aidermacs--comint-stop-spinner ()
+  "Stop the spinner animation and remove the overlay."
+  (when aidermacs--comint-spinner-timer
+    (cancel-timer aidermacs--comint-spinner-timer)
+    (setq aidermacs--comint-spinner-timer nil))
+  (when aidermacs--comint-spinner-overlay
+    (delete-overlay aidermacs--comint-spinner-overlay)
+    (setq aidermacs--comint-spinner-overlay nil)))
+
 (defun aidermacs--comint-cleanup-hook ()
   "Clean up the fontify buffer."
   (when (bufferp aidermacs--syntax-work-buffer)
-    (kill-buffer aidermacs--syntax-work-buffer)))
+    (kill-buffer aidermacs--syntax-work-buffer))
+  (aidermacs--comint-stop-spinner))
 
 (defun aidermacs-input-sender (proc string)
   "Reset font-lock state before executing a command.
@@ -348,6 +386,7 @@ PROC is the process to send to.  STRING is the command to send."
     ;; Always set timestamp for any input, including y/n/yes/no
     (setq-local aidermacs--last-command string)
     (setq-local aidermacs--command-start-time (current-time))
+    (aidermacs--comint-start-spinner)
     (when (member (downcase string) '("" "y" "n" "d" "yes" "no" "a" "s"))
       ;; User declined: clear flag immediately to prevent false trigger
       (unless (member (downcase string) '("" "y" "yes" "a"))
@@ -381,6 +420,7 @@ BUFFER is the target buffer.  COMMAND is the text to send."
       (setq-local aidermacs--ready nil)
       (setq-local aidermacs--last-command command)
       (setq-local aidermacs--command-start-time (current-time))
+      (aidermacs--comint-start-spinner)
       (goto-char (process-mark process))
       (aidermacs-reset-font-lock-state)
       (insert (propertize command
@@ -420,7 +460,8 @@ The output is collected and passed to the current callback."
     (setq-local aidermacs--last-command nil)
     (setq-local aidermacs--current-callback nil)
     ;; Clean up temp buffers
-    (aidermacs--cleanup-temp-buffers)))
+    (aidermacs--cleanup-temp-buffers)
+    (aidermacs--comint-stop-spinner)))
 
 (defvar aidermacs-comint-mode-map
   (let ((map (make-sparse-keymap)))
